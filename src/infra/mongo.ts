@@ -70,7 +70,7 @@ export class Database {
 
     async ensureIndexes(): Promise<void> {
         await this.usageRecords.createIndex({ orgId: 1, hour: 1 });
-        await this.dirtyHours.createIndex({ markedAt: 1 });
+        await this.dirtyHours.createIndex({ orgId: 1, hour: 1 });
         await this.rejectedRecords.createIndex({ rejectedAt: 1 });
         await this.hourlyRollups.createIndex({ orgId: 1, hour: 1 });
         await this.hourlyRollups.createIndex({ hour: 1 });

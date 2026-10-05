@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FixedClock } from "../../src/domain/time.ts";
 import type { Database } from "../../src/infra/mongo.ts";
 import { MongoUsageStore } from "../../src/metering/mongo-usage-store.ts";
+import type { OrgHour } from "../../src/metering/usage-store.ts";
 import { Aggregator } from "../../src/rollups/aggregator.ts";
 import { backfill } from "../../src/rollups/backfill.ts";
 import { reconcile } from "../../src/rollups/reconcile.ts";
@@ -66,16 +67,16 @@ describe("rollups", () => {
         await agg.drain();
         await ingest(db, records); // redelivery: marks the hour again, inserts nothing
         await agg.drain();
-        await agg.recomputeHours("org_a", [new Date("2026-09-10T08:00:00Z")]);
+        await agg.recomputeHours([{ orgId: "org_a", hour: new Date("2026-09-10T08:00:00Z") }]);
         expect(await db.hourlyRollups.countDocuments()).toBe(1);
         expect((await db.hourlyRollups.findOne({}))?.quantity).toBe(3_000_000n);
     });
 
     it("keeps a marker that was re-flagged while its hour was being recomputed", async () => {
         class RacingAggregator extends Aggregator {
-            override async recomputeHours(orgId: string, hours: readonly Date[]): Promise<void> {
-                await super.recomputeHours(orgId, hours);
-                await new MongoUsageStore(db).markDirty(hours.map((hour) => ({ orgId, hour })));
+            override async recomputeHours(keys: readonly OrgHour[]): Promise<void> {
+                await super.recomputeHours(keys);
+                await new MongoUsageStore(db).markDirty(keys);
             }
         }
         await ingest(db, [usage("org_a", "compute", "1", "2026-09-10T08:05:00Z", clock)]);
