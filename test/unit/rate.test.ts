@@ -83,7 +83,7 @@ describe("rateSegments", () => {
             ["usage:storage:0", 144n], // volume: 36,000 GB-h x 0.00004 = 1.44
             ["usage:transfer:0", 850n], // 100 GB x 0.085
         ]);
-        expect(lines[1]?.description).toBe("Compute: 250000 compute-unit-minutes");
+        expect(lines[1]?.description).toBe("Compute: 250,000 compute-unit-minutes");
     });
 
     it("prorates the base fee and the tier allowances on a mid-cycle upgrade", () => {
