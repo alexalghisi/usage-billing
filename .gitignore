@@ -8,3 +8,6 @@ test-results/
 .DS_Store
 .vscode/
 .idea/
+.terraform/
+.terraform.lock.hcl
+*.tfstate*
