@@ -100,6 +100,7 @@ export function buildApi(services: Services, extras: { reporter?: MarketplaceRep
         const late = rollups.reduce((acc, r) => acc + r.lateRecords, 0);
         return {
             line,
+            invoiceStatus: inv.status,
             billedQuantity: line.quantity,
             currentQuantity: current,
             changedSinceInvoiced: current !== line.quantity,
