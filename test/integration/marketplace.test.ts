@@ -140,7 +140,7 @@ describe("marketplace reporting", () => {
         await meter(s, "9", "2026-09-01T00:10:00Z");
         fake.faults = { errorRate: 0, throttleRate: 0, unprocessedRate: 0, lostResponseRate: 1, latencyMs: 0 };
         clock.set(new Date("2026-09-01T03:00:00Z"));
-        expect(await s.reporter.runOnce()).toMatchObject({ failedRequests: 1 });
+        expect(await s.reporter.runOnce()).toMatchObject({ requests: 4, failedRequests: 4 }); // first try plus three in-run retries
         fake.faults = { errorRate: 0, throttleRate: 0, unprocessedRate: 0, lostResponseRate: 0, latencyMs: 0 };
         clock.set(new Date("2026-09-01T07:00:00Z"));
         expect(await s.reporter.runOnce()).toMatchObject({ unresolved: 1, planned: 0, requests: 0 });
