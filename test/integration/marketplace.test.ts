@@ -21,7 +21,7 @@ beforeAll(async () => {
     fake.subscribe("prod-qc", "cust-1");
     server = fake.buildServer();
     const address = await server.listen({ port: 0, host: "127.0.0.1" });
-    client = new AwsMeteringClient({ endpoint: address, maxAttempts: 2 });
+    client = new AwsMeteringClient({ endpoint: address });
 });
 afterAll(async () => {
     client.destroy();
@@ -121,10 +121,10 @@ describe("marketplace reporting", () => {
         expect(duplicates).toBeGreaterThan(0); // lost responses were retried and deduplicated by AWS
     });
 
-    it("re-plans units whose report got too old to send", async () => {
+    it("re-plans units whose report was only ever throttled until it got too old to send", async () => {
         const s = await setup();
         await meter(s, "9", "2026-09-01T00:10:00Z");
-        fake.faults = { errorRate: 1, throttleRate: 0, unprocessedRate: 0, lostResponseRate: 0, latencyMs: 0 };
+        fake.faults = { errorRate: 0, throttleRate: 1, unprocessedRate: 0, lostResponseRate: 0, latencyMs: 0 };
         clock.set(new Date("2026-09-01T03:00:00Z"));
         await s.reporter.runOnce();
         fake.faults = { errorRate: 0, throttleRate: 0, unprocessedRate: 0, lostResponseRate: 0, latencyMs: 0 };
@@ -133,6 +133,19 @@ describe("marketplace reporting", () => {
         expect(stats).toMatchObject({ expired: 1, planned: 1, accepted: 1 });
         expect(reported("compute_unit_minutes")).toBe(9);
         expect([...fake.records.values()][0]?.timestamp.toISOString()).toBe("2026-09-01T04:00:00.000Z");
+    });
+
+    it("does not re-plan a report that may have reached AWS, so nothing is billed twice", async () => {
+        const s = await setup();
+        await meter(s, "9", "2026-09-01T00:10:00Z");
+        fake.faults = { errorRate: 0, throttleRate: 0, unprocessedRate: 0, lostResponseRate: 1, latencyMs: 0 };
+        clock.set(new Date("2026-09-01T03:00:00Z"));
+        expect(await s.reporter.runOnce()).toMatchObject({ failedRequests: 1 });
+        fake.faults = { errorRate: 0, throttleRate: 0, unprocessedRate: 0, lostResponseRate: 0, latencyMs: 0 };
+        clock.set(new Date("2026-09-01T07:00:00Z"));
+        expect(await s.reporter.runOnce()).toMatchObject({ unresolved: 1, planned: 0, requests: 0 });
+        expect(reported("compute_unit_minutes")).toBe(9); // AWS had recorded it; re-planning would have doubled it
+        expect((await s.reporter.unresolved()).map((r) => r.quantity)).toEqual([9]);
     });
 
     it("marks reports for an unsubscribed customer as rejected", async () => {
