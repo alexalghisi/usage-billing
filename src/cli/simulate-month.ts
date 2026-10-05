@@ -36,7 +36,7 @@ try {
     process.stdout.write(`${bold("rollups")}      reconciliation against raw records: ${r.reconcileMismatches === 0 ? green("0 mismatches") : red(`${r.reconcileMismatches} mismatches`)}\n`);
     process.stdout.write(`${bold("invoices")}     2026-09: ${sep?.finalized} finalized in ${((sep?.durationMs ?? 0) / 1000).toFixed(1)} s, 2026-10: ${oct?.finalized} finalized in ${((oct?.durationMs ?? 0) / 1000).toFixed(1)} s, ${r.adjustmentLines} adjustment lines for late usage\n`);
     const m = r.marketplace;
-    process.stdout.write(`${bold("marketplace")}  ${n(m.reportedUnits)} of ${n(m.expectedUnits)} units reported with ${n(m.stats.failedRequests)} failed requests injected, ${n(m.stats.duplicates)} retries deduplicated by AWS, ${m.unresolvedReports} left unresolved, never over-reported\n`);
+    process.stdout.write(`${bold("marketplace")}  ${n(m.reportedUnits)} of ${n(m.expectedUnits)} units reported; ${n(m.stats.failedRequests)} injected failures, ${n(m.stats.duplicates)} retries deduplicated, ${m.unresolvedReports} unresolved\n`);
     process.stdout.write(`${bold("audit")}        ${n(r.auditEntries)} entries, hash chain ${r.auditOk ? green("verified") : red("BROKEN")}, finalized invoices ${r.invoicesVerified ? green("untampered") : red("MODIFIED")}\n\n`);
 
     const header = ["org", "period", "subtotal", "discount", "credits", "tax", "total", "oracle", ""];
