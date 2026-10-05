@@ -1,6 +1,7 @@
 import { MongoClient, type Collection, type Db } from "mongodb";
 import type { UsageRecord } from "../metering/record.ts";
 import type { Rejection } from "../metering/usage-store.ts";
+import type { DailyRollup, HourlyRollup } from "../rollups/types.ts";
 
 export interface DirtyHour {
     _id: string;
@@ -29,10 +30,20 @@ export class Database {
         return this.db.collection<Rejection>("rejected_records");
     }
 
+    get hourlyRollups(): Collection<HourlyRollup> {
+        return this.db.collection<HourlyRollup>("rollups_hourly");
+    }
+    get dailyRollups(): Collection<DailyRollup> {
+        return this.db.collection<DailyRollup>("rollups_daily");
+    }
+
     async ensureIndexes(): Promise<void> {
         await this.usageRecords.createIndex({ orgId: 1, hour: 1 });
         await this.dirtyHours.createIndex({ markedAt: 1 });
         await this.rejectedRecords.createIndex({ rejectedAt: 1 });
+        await this.hourlyRollups.createIndex({ orgId: 1, hour: 1 });
+        await this.hourlyRollups.createIndex({ hour: 1 });
+        await this.dailyRollups.createIndex({ orgId: 1, day: 1 });
     }
 
     async drop(): Promise<void> {
