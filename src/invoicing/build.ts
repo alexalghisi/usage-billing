@@ -1,6 +1,6 @@
-import { METERS, METER_UNITS, zeroQuantities, type MeterQuantities } from "../domain/meters.ts";
+import { formatQuantity, METERS, METER_UNITS, zeroQuantities, type MeterQuantities } from "../domain/meters.ts";
 import type { Period } from "../domain/time.ts";
-import { formatFixed, QTY_DECIMALS } from "../money/fixed.ts";
+import { formatFixed } from "../money/fixed.ts";
 import type { Cents } from "../money/money.ts";
 import { contractDiscountBps, type Org } from "../orgs/org.ts";
 import { applyCredits, type CreditGrant } from "../rating/credits.ts";
@@ -31,7 +31,7 @@ export function periodNet(org: Org, period: Period, segments: readonly RatedSegm
 function describeDelta(adj: PeriodAdjustment): string {
     const parts = METERS.filter((m) => adj.usage[m] !== adj.previousUsage[m]).map((m) => {
         const delta = adj.usage[m] - adj.previousUsage[m];
-        return `${m} ${delta > 0n ? "+" : ""}${formatFixed(delta, QTY_DECIMALS)} ${METER_UNITS[m]}`;
+        return `${m} ${delta > 0n ? "+" : ""}${formatQuantity(delta)} ${METER_UNITS[m]}`;
     });
     return `Adjustment for ${adj.period}: usage reported after invoicing (${parts.join(", ")})`;
 }
