@@ -20,8 +20,8 @@ export function InvoiceList({ invoices, selected, onSelect }: { invoices: Invoic
             <tbody>
                 {invoices.map((inv) => (
                     <tr key={inv._id} className={inv._id === selected ? "selected" : ""} onClick={() => onSelect(inv._id)} tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onSelect(inv._id)}>
-                        <td>{monthName(inv.period)}</td>
-                        <td className="mono">{inv.number ?? <span className="muted">draft</span>}</td>
+                        <td className="nowrap">{monthName(inv.period)}</td>
+                        <td className="mono nowrap">{inv.number ?? <span className="muted">draft</span>}</td>
                         <td>
                             <StatusPill status={inv.status} />
                         </td>
