@@ -1,6 +1,6 @@
-import { METERS, METER_UNITS, type Meter, type MeterQuantities } from "../domain/meters.ts";
+import { formatQuantity, METERS, METER_UNITS, type Meter, type MeterQuantities } from "../domain/meters.ts";
 import type { Period } from "../domain/time.ts";
-import { divRound, formatFixed, QTY_DECIMALS } from "../money/fixed.ts";
+import { divRound } from "../money/fixed.ts";
 import { exactToCents, type Cents } from "../money/money.ts";
 import type { PlanCatalog } from "./plan.ts";
 import { priceUsage, prorateTiers, type TierCharge } from "./price.ts";
@@ -75,7 +75,7 @@ export function rateSegments(period: Period, segments: readonly RatedSegment[], 
                 quantity,
                 tiers: charge.tiers,
                 amount: exactToCents(charge.exact, "half-even"),
-                description: `${meter[0]?.toUpperCase()}${meter.slice(1)}: ${formatFixed(quantity, QTY_DECIMALS)} ${METER_UNITS[meter]}${suffix}`,
+                description: `${meter[0]?.toUpperCase()}${meter.slice(1)}: ${formatQuantity(quantity)} ${METER_UNITS[meter]}${suffix}`,
             });
         }
     });
