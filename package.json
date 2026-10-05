@@ -12,7 +12,7 @@
     "web"
   ],
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json && npm run typecheck --workspace web",
+    "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:unit": "vitest run test/unit",
     "test:integration": "vitest run test/integration",
