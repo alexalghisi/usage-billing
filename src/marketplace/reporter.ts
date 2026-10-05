@@ -16,7 +16,14 @@ export const DIMENSIONS: Record<Meter, string> = {
     transfer: "data_transfer_gb",
 };
 
-export type ReportStatus = "pending" | "accepted" | "rejected" | "expired";
+/**
+ * expired: never reached AWS (only throttled or returned unprocessed) before the
+ *   six-hour window closed; the units are planned again under a later hour.
+ * unresolved: an attempt may have reached AWS (5xx or lost connection) and the
+ *   window closed before a retry settled it. Counted as reported so a customer
+ *   is never billed twice, and left for manual reconciliation against AWS reports.
+ */
+export type ReportStatus = "pending" | "accepted" | "rejected" | "expired" | "unresolved";
 
 export interface MarketplaceReport {
     /** "<orgId>|<dimension>|<hour>": at most one report per org, dimension and hour, like AWS itself. */
@@ -32,6 +39,8 @@ export interface MarketplaceReport {
     duplicate?: boolean;
     meteringRecordId?: string;
     attempts: number;
+    /** Set once an attempt failed in a way that leaves open whether AWS recorded it. */
+    ambiguous?: boolean;
     nextAttemptAt: Date;
     lastError?: string;
     createdAt: Date;
@@ -47,14 +56,17 @@ export interface ReporterStats {
     rejected: number;
     unprocessed: number;
     expired: number;
+    unresolved: number;
 }
 
 const MAX_BATCH = 25;
+/** Immediate retries within one run, before leaving the rest to the next run. */
+const IN_RUN_RETRIES = 3;
 const MAX_QUANTITY = 2_147_483_647;
 /** AWS refuses records older than six hours; stop trying a little before that and re-plan the units. */
 const EXPIRE_AFTER_MS = 5.5 * HOUR_MS;
 
-const emptyStats = (): ReporterStats => ({ planned: 0, requests: 0, failedRequests: 0, accepted: 0, duplicates: 0, rejected: 0, unprocessed: 0, expired: 0 });
+const emptyStats = (): ReporterStats => ({ planned: 0, requests: 0, failedRequests: 0, accepted: 0, duplicates: 0, rejected: 0, unprocessed: 0, expired: 0, unresolved: 0 });
 
 /**
  * Reports usage of marketplace-billed orgs to AWS Marketplace once per closed hour.
@@ -71,8 +83,10 @@ export class MarketplaceReporter {
     private readonly usage: UsageQuery;
     private readonly audit: AuditLog;
     private readonly logger: Logger;
+    private readonly retryDelayMs: number;
 
-    constructor(deps: { db: Database; client: MeteringClient; clock: Clock; usage: UsageQuery; audit: AuditLog; logger?: Logger }) {
+    constructor(deps: { db: Database; client: MeteringClient; clock: Clock; usage: UsageQuery; audit: AuditLog; logger?: Logger; retryDelayMs?: number }) {
+        this.retryDelayMs = deps.retryDelayMs ?? 50;
         this.db = deps.db;
         this.client = deps.client;
         this.clock = deps.clock;
@@ -92,7 +106,7 @@ export class MarketplaceReporter {
 
     async runOnce(): Promise<ReporterStats> {
         const stats = emptyStats();
-        stats.expired += await this.expireStale();
+        Object.assign(stats, await this.expireStale());
         const orgs = await this.db.orgs.find({ "billing.channel": "aws_marketplace" }).toArray();
         for (const org of orgs) stats.planned += await this.plan(org);
         await this.send(stats);
@@ -109,7 +123,8 @@ export class MarketplaceReporter {
         const totals = await this.usage.totals(org._id, since, cutoff);
         const reported = await this.reports
             .aggregate<{ _id: Meter; quantity: number }>([
-                { $match: { orgId: org._id, status: { $in: ["pending", "accepted"] } } },
+                // Rejected units are not re-planned either: AWS would reject them again every hour.
+                { $match: { orgId: org._id, status: { $in: ["pending", "accepted", "rejected", "unresolved"] } } },
                 { $group: { _id: "$meter", quantity: { $sum: "$quantity" } } },
             ])
             .toArray();
@@ -148,10 +163,12 @@ export class MarketplaceReporter {
         return planned;
     }
 
-    private async expireStale(): Promise<number> {
+    private async expireStale(): Promise<{ expired: number; unresolved: number }> {
         const limit = new Date(this.clock.now().getTime() - EXPIRE_AFTER_MS);
-        const res = await this.reports.updateMany({ status: "pending", hour: { $lt: limit } }, { $set: { status: "expired", lastError: "too old for AWS; units re-planned" } });
-        return res.modifiedCount;
+        const unresolved = await this.reports.updateMany({ status: "pending", hour: { $lt: limit }, ambiguous: true }, { $set: { status: "unresolved" } });
+        if (unresolved.modifiedCount > 0) this.logger.warn("marketplace reports need manual reconciliation", { count: unresolved.modifiedCount });
+        const expired = await this.reports.updateMany({ status: "pending", hour: { $lt: limit } }, { $set: { status: "expired", lastError: "too old for AWS; units re-planned" } });
+        return { expired: expired.modifiedCount, unresolved: unresolved.modifiedCount };
     }
 
     private async send(stats: ReporterStats): Promise<void> {
@@ -164,6 +181,21 @@ export class MarketplaceReporter {
     }
 
     private async sendBatch(productCode: string, batch: MarketplaceReport[], stats: ReporterStats): Promise<void> {
+        let remaining = batch;
+        for (let attempt = 0; remaining.length > 0; attempt++) {
+            const outcome = await this.attempt(productCode, remaining, stats);
+            remaining = outcome.retry;
+            if (remaining.length === 0) return;
+            if (attempt === IN_RUN_RETRIES) {
+                await this.backoff(remaining, outcome.reason, false);
+                return;
+            }
+            await new Promise((r) => setTimeout(r, this.retryDelayMs * 2 ** attempt));
+        }
+    }
+
+    /** One BatchMeterUsage call. Returns the reports to try again. */
+    private async attempt(productCode: string, batch: MarketplaceReport[], stats: ReporterStats): Promise<{ retry: MarketplaceReport[]; reason: string }> {
         const key = (r: { customerIdentifier: string; dimension: string; timestamp: Date }) => `${r.customerIdentifier}|${r.dimension}|${Math.floor(r.timestamp.getTime() / 1000)}`;
         const byKey = new Map(batch.map((r) => [key({ ...r, timestamp: r.hour }), r]));
         const records: MeterRecord[] = batch.map((r) => ({ customerIdentifier: r.customerIdentifier, dimension: r.dimension, quantity: r.quantity, timestamp: r.hour }));
@@ -173,8 +205,10 @@ export class MarketplaceReporter {
             response = await this.client.batchMeterUsage(productCode, records);
         } catch (error) {
             stats.failedRequests++;
-            await this.backoff(batch, String((error as Error).name ?? error));
-            return;
+            const reason = String((error as Error).name ?? error);
+            // Persist the doubt before retrying: if the process dies now, expiry must not re-plan these units.
+            if (mayHaveBeenRecorded(error)) await this.reports.updateMany({ _id: { $in: batch.map((r) => r._id) } }, { $set: { ambiguous: true, lastError: reason } });
+            return { retry: batch, reason };
         }
         const now = this.clock.now();
         const audit: AuditInput[] = [];
@@ -211,18 +245,31 @@ export class MarketplaceReporter {
         }
         const unprocessed = response.unprocessed.map((r) => byKey.get(key(r))).filter((r): r is MarketplaceReport => r !== undefined);
         stats.unprocessed += unprocessed.length;
-        await this.backoff(unprocessed, "UnprocessedRecords");
+        return { retry: unprocessed, reason: "UnprocessedRecords" };
     }
 
-    private async backoff(reports: MarketplaceReport[], reason: string): Promise<void> {
+    private async backoff(reports: MarketplaceReport[], reason: string, ambiguous: boolean): Promise<void> {
         const now = this.clock.now().getTime();
         for (const r of reports) {
             const delayMs = Math.min(15 * 60_000, 2 ** r.attempts * 5_000);
-            await this.reports.updateOne({ _id: r._id, status: "pending" }, { $set: { nextAttemptAt: new Date(now + delayMs), lastError: reason }, $inc: { attempts: 1 } });
+            await this.reports.updateOne(
+                { _id: r._id, status: "pending" },
+                { $set: { nextAttemptAt: new Date(now + delayMs), lastError: reason, ...(ambiguous ? { ambiguous: true } : {}) }, $inc: { attempts: 1 } },
+            );
         }
+    }
+
+    unresolved(): Promise<MarketplaceReport[]> {
+        return this.reports.find({ status: "unresolved" }).toArray();
     }
 
     list(orgId: string, limit = 200): Promise<MarketplaceReport[]> {
         return this.reports.find({ orgId }).sort({ hour: -1 }).limit(limit).toArray();
     }
+}
+
+/** A throttle or other 4xx means AWS did not record anything; a 5xx or a network error leaves it open. */
+function mayHaveBeenRecorded(error: unknown): boolean {
+    const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+    return status === undefined || status >= 500;
 }

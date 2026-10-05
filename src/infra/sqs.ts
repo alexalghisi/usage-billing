@@ -35,3 +35,12 @@ export async function ensureQueue(sqs: SQSClient, name: string, maxReceiveCount 
     const attrs = await sqs.send(new GetQueueAttributesCommand({ QueueUrl: main.QueueUrl, AttributeNames: ["QueueArn"] }));
     return { queueUrl: main.QueueUrl, queueArn: attrs.Attributes?.QueueArn ?? `arn:aws:sqs:eu-west-1:000000000000:${name}`, dlqUrl: dlq.QueueUrl };
 }
+
+/** Visible plus in-flight messages. */
+export async function queueDepth(sqs: SQSClient, queueUrl: string): Promise<number> {
+    const res = await sqs.send(
+        new GetQueueAttributesCommand({ QueueUrl: queueUrl, AttributeNames: ["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible", "ApproximateNumberOfMessagesDelayed"] }),
+    );
+    const a = res.Attributes ?? {};
+    return Number(a.ApproximateNumberOfMessages ?? 0) + Number(a.ApproximateNumberOfMessagesNotVisible ?? 0) + Number(a.ApproximateNumberOfMessagesDelayed ?? 0);
+}
