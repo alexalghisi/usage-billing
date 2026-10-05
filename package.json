@@ -24,6 +24,7 @@
   "dependencies": {
     "@aws-sdk/client-marketplace-metering": "^3.1146.0",
     "@aws-sdk/client-sqs": "^3.1146.0",
+    "decimal.js": "^10.6.0",
     "fastify": "^5.12.5",
     "mongodb": "^7.7.0",
     "zod": "^4.6.5"
@@ -31,7 +32,6 @@
   "devDependencies": {
     "@types/aws-lambda": "^8.10.164",
     "@types/node": "^22.20.5",
-    "decimal.js": "^10.6.0",
     "fast-check": "^4.10.2",
     "mongodb-memory-server": "^11.3.0",
     "typescript": "~5.9.3",

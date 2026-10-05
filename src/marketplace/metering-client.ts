@@ -25,7 +25,8 @@ export class AwsMeteringClient implements MeteringClient {
     constructor(options: { endpoint?: string; region?: string; maxAttempts?: number }) {
         this.client = new MarketplaceMeteringClient({
             region: options.region ?? "us-east-1",
-            maxAttempts: options.maxAttempts ?? 3,
+            // Retries are left to the reporter, which needs to see every failed attempt to know whether AWS may have recorded it.
+            maxAttempts: options.maxAttempts ?? 1,
             ...(options.endpoint ? { endpoint: options.endpoint, credentials: { accessKeyId: "local", secretAccessKey: "local" } } : {}),
         });
     }
