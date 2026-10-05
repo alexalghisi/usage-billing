@@ -22,6 +22,7 @@
     "bench": "node bench/run.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-marketplace-metering": "^3.1146.0",
     "@aws-sdk/client-sqs": "^3.1146.0",
     "fastify": "^5.12.5",
     "mongodb": "^7.7.0",
